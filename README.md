@@ -1,12 +1,11 @@
 # slop.nvim
 
-Review code where you edit it. Gitsigns shows the changes, quickfix takes you
-through the hunks, and ordinary Markdown buffers hold your GitHub review comments.
+Review GitHub PRs without leaving Neovim. Jump between changes with quickfix,
+write comments in Markdown, and suggest edits right from the code.
 
-[![slop.nvim demo](demo/slop-demo.gif)](demo/slop-demo.mp4)
+[![slop.nvim demo](https://raw.githubusercontent.com/antti-bot/slop.nvim-demo/main/demo/slop-demo.gif)](https://github.com/antti-bot/slop.nvim-demo/blob/main/demo/slop-demo.mp4)
 
-[Watch the 41-second demo](demo/slop-demo.mp4). Real Neovim workflow; GitHub
-responses are simulated using the test fixture.
+[Watch the demo](https://github.com/antti-bot/slop.nvim-demo/blob/main/demo/slop-demo.mp4).
 
 ```vim
 :Slop                    " PR merge base, or HEAD when this branch has no PR
@@ -19,8 +18,8 @@ responses are simulated using the test fixture.
 :Slop submit             " Publish the draft review
 ```
 
-No PR dashboard, file picker, or custom diff renderer. Keep your Gitsigns hunk
-navigation, inline previews, and native quickfix commands.
+If you already use Gitsigns, you can keep using its hunk navigation and inline
+previews. Slop adds review comments and suggestions to that workflow.
 
 ## Install
 
