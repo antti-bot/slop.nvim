@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Offline GitHub fixture. Exercise the real gh subprocess/JSON boundary."""
+import json
+import os
+import sys
+
+path = os.environ['SLOP_TEST_STATE']
+with open(path) as f:
+    state = json.load(f)
+
+
+def fail(message):
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+
+if sys.argv[1:3] == ['pr', 'view']:
+    if state.get('pr_error'):
+        fail(state['pr_error'])
+    print(json.dumps(state['pr']))
+    sys.exit()
+
+request = json.load(sys.stdin)
+query, variables = request['query'], request['variables']
+state.setdefault('calls', []).append(request)
+comments = state.setdefault('comments', [])
+review = state.get('review')
+if 'mutation(' in query and state.get('fail_write'):
+    fail('simulated network failure')
+
+if 'viewer { login }' in query:
+    result = {'viewer': {'login': 'reviewer'}, 'node': {
+        'headRefOid': state['pr']['headRefOid'],
+        'reviews': {'nodes': [{'id': review, 'author': {'login': 'reviewer'}}] if review else []},
+    }}
+elif 'comments(first: 100' in query:
+    # Deliberately paginate to catch reviews whose comments span multiple pages.
+    offset = int(variables.get('cursor', '0'))
+    page = comments[offset:offset + 2]
+    more = offset + 2 < len(comments)
+    result = {'node': {'comments': {'nodes': page, 'pageInfo': {
+        'hasNextPage': more, 'endCursor': str(offset + 2),
+    }}}}
+elif 'addPullRequestReviewThread(' in query or 'addPullRequestReview(' in query:
+    data = variables['input']
+    if data.get('event'):
+        assert not review
+        state['submitted'] = {'body': data['body'], 'comments': []}
+        result = {'addPullRequestReview': {'pullRequestReview': {'id': 'submitted'}}}
+    else:
+        existing = 'addPullRequestReviewThread(' in query
+        if existing:
+            assert data['pullRequestReviewId'] == review
+            item = data
+        else:
+            assert not review and 'event' not in data
+            assert data['commitOID'] == state['pr']['headRefOid']
+            state['review'] = 'draft-review'
+            item = data['threads'][0]
+        assert item['side'] == 'RIGHT'
+        count = state.get('serial', 0) + 1
+        state['serial'] = count
+        comment = {'id': 'comment-' + str(count), 'body': item['body'], 'path': item['path'],
+                   'line': item['line'], 'startLine': item.get('startLine'),
+                   'originalLine': item['line'], 'originalStartLine': item.get('startLine')}
+        comments.append(comment)
+        if existing:
+            result = {'addPullRequestReviewThread': {'thread': {'comments': {'nodes': [comment]}}}}
+        else:
+            result = {'addPullRequestReview': {'pullRequestReview': {'comments': {'nodes': [comment]}}}}
+elif 'updatePullRequestReviewComment(' in query:
+    data = variables['input']
+    assert review
+    comment = next(c for c in comments if c['id'] == data['pullRequestReviewCommentId'])
+    comment['body'] = data['body']
+    result = {'updatePullRequestReviewComment': {'pullRequestReviewComment': comment}}
+elif 'deletePullRequestReviewComment(' in query:
+    assert review
+    state['comments'] = [c for c in comments if c['id'] != variables['input']['id']]
+    result = {'deletePullRequestReviewComment': {'clientMutationId': None}}
+elif 'submitPullRequestReview(' in query:
+    data = variables['input']
+    assert review and data['pullRequestReviewId'] == review and data['event'] == 'COMMENT'
+    state['submitted'] = {'body': data.get('body'), 'comments': comments}
+    state['review'], state['comments'] = None, []
+    result = {'submitPullRequestReview': {'pullRequestReview': {'id': review}}}
+else:
+    raise AssertionError(query)
+
+with open(path, 'w') as f:
+    json.dump(state, f)
+print(json.dumps({'data': result}))

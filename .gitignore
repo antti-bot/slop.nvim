@@ -1,0 +1,3 @@
+*.log
+.nvimlog
+doc/tags

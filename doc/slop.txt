@@ -1,0 +1,221 @@
+*slop.txt*       Review code with Gitsigns and GitHub draft reviews
+
+Author: Antti Eskelinen
+License: MIT
+
+==============================================================================
+CONTENTS                                                        *slop* *slop.nvim*
+
+    1. Setup .............................................. |slop-setup|
+    2. Commands ........................................... |slop-commands|
+    3. Comment buffers .................................... |slop-comments|
+    4. Draft list ......................................... |slop-drafts|
+    5. Keybindings ........................................ |slop-mappings|
+    6. Constraints ........................................ |slop-constraints|
+    7. Lua API ............................................ |slop-api|
+
+==============================================================================
+1. SETUP                                                        *slop-setup*
+
+Requires Neovim 0.11+, git, and lewis6991/gitsigns.nvim. Configure Gitsigns as
+usual. For GitHub reviews, install gh and authenticate using `gh auth login`.
+Local reviews do not require gh. Run |:checkhealth| slop to check dependencies.
+
+No setup call is required. Optional mappings: >lua
+    require('slop').setup({ mappings = true })
+<
+No options other than `mappings` are currently supported. Default: false.
+Install the plugin using your preferred package manager. The command loads
+through plugin/slop.lua. When lazy-loading, include the Slop command and/or the
+keys you intend to use in your package manager's specification.
+
+==============================================================================
+2. COMMANDS                                                     *slop-commands*
+
+                                                                *:Slop*
+:Slop [local|pr]
+    Start a review in the repository of the current source file, or the current
+    directory. From Slop buffers, reuse the active repository.
+
+    With no argument, find the current branch's PR using `gh pr view`. Diff
+    against its merge base with HEAD. Fall back to HEAD only when gh reports
+    that the branch has no PR. Authentication/network failures remain errors.
+
+    `local` always compares against HEAD without contacting GitHub.
+    `pr` requires a PR and never falls back.
+
+    Change Gitsigns' global base, populate quickfix with this repository's
+    changed hunks, open quickfix, and jump to the first hunk in the editor.
+    Native |:cnext|, |:cprevious|, |:cc|, |:copen|, and Gitsigns operations work
+    normally. Untracked files are included if Gitsigns' attach_to_untracked is
+    enabled. There is one active review per Neovim instance.
+
+:[range]Slop comment                                             *slop-comment*
+    Open a Markdown buffer for a comment on the current source line or the
+    given whole-line range. In Visual mode: select lines, then :Slop comment.
+    The comment targets the RIGHT side of the checked-out PR. See
+    |slop-comments| and |slop-constraints|.
+
+:[range]Slop suggest                                             *slop-suggest*
+    From code, open a comment with the selected source lines in a fenced
+    suggestion block. Inside a comment opened from code, insert the captured
+    source selection after the cursor (replace the line in an empty buffer).
+    Edit the suggested lines before saving. Characterwise/blockwise selections
+    are treated as whole-line ranges. The source is captured when opening the
+    comment. Comments opened from the draft list have no source capture.
+
+:Slop drafts
+    Open an editable list of every comment in your PENDING GitHub review.
+    Press <CR> to edit. Delete lines and save to delete comments. See
+    |slop-drafts|.
+
+:Slop submit                                                     *slop-submit*
+    Publish your pending review and its draft comments without an overall
+    review comment. Requires a pending review. The event is COMMENT.
+
+:Slop submit-comment
+    Open a Markdown buffer for an overall review comment. Saving nonempty text
+    publishes a COMMENT review, including any pending inline comments. Also
+    works without a draft. Saving empty text or quitting without saving aborts
+    and leaves any pending review intact. Save/discard other modified Slop
+    buffers before submitting.
+
+:Slop viewed                                                     *slop-viewed*
+    Remove one item from the active Slop quickfix list. In its quickfix window,
+    remove the row under the cursor; elsewhere, remove the current quickfix
+    item. Other quickfix lists are refused. This is a local checklist only:
+    GitHub's viewed status is neither read nor written. Starting a new review
+    rebuilds the list.
+
+:Slop stop
+    End the session and reset Gitsigns' global base to its default index base.
+    Save or discard modified Slop buffers first. Existing GitHub drafts are
+    kept; this command does not submit or delete them.
+
+==============================================================================
+3. COMMENT BUFFERS                                               *slop-comments*
+
+Comments use ordinary Markdown split buffers with 'buftype' set to "acwrite".
+
+    :w / :write     Save to your GitHub draft review. The first nonempty comment
+                    creates the review and its first comment together. Further
+                    writes update the same draft comment.
+    :wq / ZZ        Save and close after success.
+    :q! / ZQ        Discard unsaved changes and close.
+    :q              Close if unmodified; otherwise Vim prompts as usual.
+
+Saving an empty or whitespace-only comment aborts the write. If editing an
+existing comment, its GitHub content is kept. Delete it through |slop-drafts|.
+Closing a saved buffer does not delete the comment. Comments stay in a pending
+review until explicitly submitted with |slop-submit| or another GitHub client.
+
+Failed writes keep the buffer modified and retain its contents, including when
+using :wq. Correct the problem and retry :w. All network requests use gh through
+|vim.system()| with argument arrays and JSON on stdin. Writes wait for GitHub's
+response (30-second timeout per process) to preserve native :wq behavior.
+
+A network timeout can be ambiguous: GitHub may have accepted a mutation before
+the connection failed. Inspect :Slop drafts before retrying a new comment or
+submission in that case.
+
+==============================================================================
+4. DRAFT LIST                                                   *slop-drafts*
+
+Each line contains a stable comment ID, path/range, and a one-line body preview.
+The list includes all pages of your own pending review's comments, including
+those created outside Slop. Published comments are not included.
+
+    <CR>            Open the comment under the cursor in a Markdown buffer.
+    dd / [range]d   Delete comment rows locally.
+    :w              Delete removed comments from GitHub.
+    :q!             Discard unsaved list changes.
+
+Only whole-line deletion and reordering are accepted in the list; edit bodies
+with <CR>. Reordering does not reorder comments on GitHub. Deletions happen
+only on save. Reopen :Slop drafts to refresh after editing a comment or after
+changes made by another client. A modified list must be saved/discarded before
+reopening. Empty saved lists delete all comments, keeping the pending review.
+
+If a comment changed remotely, a write refuses to overwrite/delete it. If the
+review was submitted remotely, a write refuses to edit its published comments.
+Refresh the list and open a fresh comment buffer to resolve stale snapshots.
+
+==============================================================================
+5. KEYBINDINGS                                                  *slop-mappings*
+
+By default only <Plug> mappings are installed. Existing user mappings and
+native Vim/Neovim commands are preserved. Optional defaults are enabled by
+setup({ mappings = true }); existing mappings at those keys are skipped.
+
+    Default             Modes   <Plug> mapping
+    <LocalLeader>rc     n,x     <Plug>(SlopComment)
+    <LocalLeader>rs     n,x     <Plug>(SlopSuggest)
+    <LocalLeader>rd     n       <Plug>(SlopDrafts)
+    <LocalLeader>rr     n       <Plug>(SlopSubmit)
+    <LocalLeader>rR     n       <Plug>(SlopSubmitComment)
+    <LocalLeader>rv     n       <Plug>(SlopViewed)
+
+|<LocalLeader>| defaults to backslash. Set maplocalleader before setup to change
+the prefix. To choose your own bindings, leave mappings=false and use: >lua
+    vim.keymap.set({ 'n', 'x' }, '<LocalLeader>c', '<Plug>(SlopComment)')
+    vim.keymap.set('n', '<LocalLeader>d', '<Plug>(SlopDrafts)')
+<
+Only the draft list defines a buffer-local <CR>. Hunk movement, previews, and
+diff views remain Gitsigns' responsibility. No mappings replace gc, gr, ]c,
+[c, or quickfix navigation.
+
+==============================================================================
+6. CONSTRAINTS                                                  *slop-constraints*
+
+- Check out the PR branch before reviewing. Slop does not checkout, fetch,
+  stash, or modify source files. For example: `gh pr checkout 123`.
+- The PR base commit must exist locally. Fetch its base branch if necessary.
+- New comments require HEAD to equal the PR head and the source file/buffer to
+  match that commit, so local edits cannot silently shift GitHub line numbers.
+- Only RIGHT-side source comments are supported. GitHub checks whether a line
+  or range lies in a commentable diff/context region. Removed lines can be
+  inspected with Gitsigns, but cannot be targeted as LEFT-side comments.
+- If the PR head changes, restart :Slop pr. Save/discard modified Slop buffers
+  before changing sessions. A comment buffer belongs to the session that
+  opened it and cannot write into a different review session.
+- Review submission uses COMMENT, without approving or requesting changes.
+- gh selects the repository from the checkout, respecting its configuration.
+  GraphQL requests use the hostname from the PR URL for Enterprise support.
+- The Gitsigns base is global. Use one review repository at a time. :Slop stop
+  resets the base to the index, rather than restoring a custom previous base.
+- Read/check/write operations are separate network requests. Simultaneous
+  writes from other clients can still race; refresh drafts when switching
+  clients. Partial deletion failures preserve progress for retry.
+
+==============================================================================
+7. LUA API                                                      *slop-api*
+
+require('slop').setup({ mappings = false })                       *slop.setup()*
+    Configure opt-in default mappings. The :Slop command needs no setup call.
+
+require('slop').start(mode)                                      *slop.start()*
+    mode: nil (auto), "local", or "pr". Gitsigns updates asynchronously.
+
+require('slop').comment(first, last)                              *slop.comment()*
+    Open a source comment; 1-based line numbers. Defaults to the cursor line.
+
+require('slop').suggest(first, last)                              *slop.suggest()*
+    Open/insert a suggestion. Same range convention as comment().
+
+require('slop').drafts()                                         *slop.drafts()*
+    Open the pending comment list.
+
+require('slop').submit(with_comment)                              *slop.submit()*
+    false/nil: publish draft. true: open a summary buffer first.
+
+require('slop').viewed()                                         *slop.viewed()*
+    Remove a quickfix item locally.
+
+require('slop').stop()                                           *slop.stop()*
+    Reset Gitsigns and end the session.
+
+Lua functions raise errors on invalid state or failed requests. The :Slop
+command reports these via |vim.notify()|. Buffer write errors propagate through
+|BufWriteCmd| to prevent :wq from closing the unsaved buffer.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
