@@ -8,7 +8,7 @@ write comments in Markdown, and suggest edits right from the code.
 [Watch the demo](https://github.com/antti-bot/slop.nvim-demo/blob/main/demo/slop-demo.mp4).
 
 ```vim
-:Slop                    " PR merge base, or HEAD when this branch has no PR
+:Slop                    " Review the current branch's PR against its merge base
 :cnext                   " Next hunk; :cprevious goes back
 :Slop comment            " Comment on the cursor line
 :'<,'>Slop comment       " Comment on a selected line range
@@ -23,8 +23,8 @@ previews. Slop adds review comments and suggestions to that workflow.
 
 ## Install
 
-Requires **Neovim 0.11+**, **Git**, and
-[Gitsigns](https://github.com/lewis6991/gitsigns.nvim). GitHub reviews also require
+Requires **Neovim 0.11+**, **Git**,
+[Gitsigns](https://github.com/lewis6991/gitsigns.nvim), and
 the [GitHub CLI](https://cli.github.com/) authenticated with `gh auth login`.
 The plugin uses the CLI's repository/host selection, including GitHub Enterprise.
 
@@ -45,23 +45,19 @@ vim.pack.add({
   'https://github.com/lewis6991/gitsigns.nvim',
   'https://github.com/antti-bot/slop.nvim',
 })
-require('gitsigns').setup({ attach_to_untracked = true })
+require('gitsigns').setup()
 require('slop').setup({ mappings = true })
 ```
 
-If Gitsigns is already configured, keep that configuration. `attach_to_untracked`
-is optional and includes untracked files in local review lists.
+If Gitsigns is already configured, keep that configuration.
 
 ## Review from code
 
 Check out the PR branch first (for example, `gh pr checkout 123`). Open a source
 file and run `:Slop`. It finds the PR for the current branch, computes the merge
 base, changes Gitsigns' base, fills quickfix with hunks, and opens the first hunk
-in your editor. If there is no PR, it reviews local changes against `HEAD`.
-Authentication and network errors are reported rather than treated as “no PR”.
-
-Use `:Slop pr` to require a PR, or `:Slop local` to review against `HEAD` without
-using GitHub. Fetch the base branch if its commit is missing locally.
+in your editor. A PR is required; missing PRs, authentication failures, and network
+errors are reported. Fetch the base branch if its commit is missing locally.
 `:Slop stop` ends the session and resets Gitsigns to its default index base.
 There is one active review per Neovim instance; the base is global, like the
 original `:Review` prototype.
@@ -83,9 +79,11 @@ fenced `suggestion` block. Edit the block to propose replacement text. From code
 inserted. Suggestions preserve whole lines, even for characterwise selections.
 
 New comments target the right-hand side of the PR diff. `HEAD` must match the PR
-head, and the source file/buffer must match that commit. GitHub validates whether
-the selected lines are commentable diff/context lines. Deleted lines remain
-visible through Gitsigns; left-side inline comments are not supported.
+head, and the source file/buffer must match that commit. Local edits can appear
+in the review hunks, but commenting on an edited file is blocked until it matches
+the PR head again. Starting a review leaves your edits intact. GitHub validates
+whether the selected lines are commentable diff/context lines. Deleted lines
+remain visible through Gitsigns; left-side inline comments are not supported.
 
 ## Draft list and submission
 

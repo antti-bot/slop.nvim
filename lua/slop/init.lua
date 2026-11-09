@@ -18,10 +18,9 @@ end
 
 local function pr_session(expected)
   local s = current(expected)
-  assert(s.pr, 'Comments require a PR; use :Slop pr on the checked-out PR branch')
   assert(
     system.git(s.root, { 'rev-parse', 'HEAD' }) == s.pr.headRefOid,
-    'HEAD must match the PR head; check out the PR branch and restart :Slop pr'
+    'HEAD must match the PR head; check out the PR branch and restart :Slop'
   )
   return s
 end
@@ -125,8 +124,7 @@ local function source_target(s, first, last)
   return target
 end
 
-function M.start(mode)
-  assert(not mode or mode == 'local' or mode == 'pr', 'Usage: Slop [local|pr]')
+function M.start()
   if session then
     unsaved(session)
   end
@@ -136,18 +134,10 @@ function M.start(mode)
     or (session and session.root)
     or vim.fn.getcwd()
   local root = system.git(cwd, { 'rev-parse', '--show-toplevel' })
-  local s = { root = root, base = 'HEAD' }
-  if mode ~= 'local' then
-    local ok, pr, host = pcall(github.pr, root)
-    if ok then
-      s.pr, s.host = pr, host
-      local merged, base = pcall(system.git, root, { 'merge-base', 'HEAD', pr.baseRefOid })
-      assert(merged, 'PR base is unavailable locally; fetch the base branch and retry :Slop pr\n' .. base)
-      s.base = base
-    elseif mode == 'pr' or not tostring(pr):find('no pull requests found', 1, true) then
-      error(pr, 0)
-    end
-  end
+  local pr, host = github.pr(root)
+  local merged, base = pcall(system.git, root, { 'merge-base', 'HEAD', pr.baseRefOid })
+  assert(merged, 'PR base is unavailable locally; fetch the base branch and retry :Slop\n' .. base)
+  local s = { root = root, pr = pr, host = host, base = base }
   generation = generation + 1
   local request = generation
   session = nil
@@ -177,7 +167,7 @@ function M.start(mode)
       end
       vim.fn.setqflist({}, 'r', {
         items = items,
-        title = 'Slop: ' .. (s.pr and ('PR #' .. s.pr.number) or 'local'),
+        title = 'Slop: PR #' .. s.pr.number,
         context = { slop = true, root = root },
       })
       s.qfid = vim.fn.getqflist({ id = 0 }).id
@@ -365,8 +355,8 @@ end
 
 function M.command(opts)
   local action = opts.fargs[1]
-  if not action or action == 'local' or action == 'pr' then
-    M.start(action)
+  if not action then
+    M.start()
   elseif action == 'comment' or action == 'suggest' then
     M[action](opts.line1, opts.line2)
   elseif action == 'submit-comment' then

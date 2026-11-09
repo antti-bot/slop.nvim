@@ -42,9 +42,9 @@ end
 local function save()
   vim.cmd('write')
 end
-local function start(mode)
+local function start()
   local id = vim.fn.getqflist({ id = 0 }).id
-  slop.start(mode)
+  slop.start()
   assert(
     vim.wait(5000, function()
       return vim.fn.getqflist({ id = 0 }).id ~= id
@@ -86,7 +86,7 @@ local function test()
     end),
     'Gitsigns did not attach'
   )
-  start('pr')
+  start()
   eq(base, require('gitsigns.config').config.base)
   eq(true, vim.fn.getqflist({ context = 0 }).context.slop)
   assert(#vim.fn.getqflist() > 0)
@@ -196,6 +196,8 @@ local function test()
   -- Dirty code cannot be anchored against GitHub's committed line numbers.
   source()
   set({ 'local edit' })
+  start()
+  eq(true, vim.bo.modified)
   fails(function()
     slop.comment(1, 1)
   end, 'Save/stash local changes')
@@ -203,6 +205,13 @@ local function test()
   fails(function()
     slop.comment(1, 1)
   end, 'Buffer differs from the PR head')
+  save()
+  start()
+  eq({ 'local edit' }, vim.fn.readfile(tmp .. '/file.lua'))
+  fails(function()
+    slop.comment(1, 1)
+  end, 'File differs from the PR head')
+  git('restore', 'file.lua')
   vim.cmd('edit!')
   slop.comment(1, 1)
   set({ 'unsaved comment' })
@@ -257,7 +266,7 @@ local function test()
   eq(true, vim.bo[stale].modified)
   close()
   source()
-  start('pr')
+  start()
   -- A remote submission makes an old editor read-only on its next write.
   local list2 = slop.drafts()
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<CR>', true, false, true), 'xt', false)
@@ -279,27 +288,22 @@ local function test()
   read().pr.headRefOid = git('rev-parse', 'HEAD')
   write()
 
-  -- Default mode falls back only for no PR, never auth/API failures.
+  -- Missing PRs and auth/API failures never change the active review base/list.
+  local qfid = vim.fn.getqflist({ id = 0 }).id
   state.pr_error = 'no pull requests found for branch'
   write()
   source()
-  start()
-  eq('HEAD', require('gitsigns.config').config.base)
-  fails(function()
-    slop.comment(1, 1)
-  end, 'Comments require a PR')
-  fails(function()
-    slop.start('pr')
-  end, 'no pull requests found')
+  fails(slop.start, 'no pull requests found')
   read().pr_error = 'authentication failed'
   write()
   fails(slop.start, 'authentication failed')
-  start('local') -- Local reviews work without gh.
-  vim.fn.writefile({ 'untracked' }, tmp .. '/new.lua')
-  vim.fn.writefile({ 'working tree' }, tmp .. '/file.lua')
-  git('add', 'file.lua')
-  start('local')
-  assert(#vim.fn.getqflist() >= 2, 'Local review must include staged and untracked files')
+  eq(base, require('gitsigns.config').config.base)
+  eq(qfid, vim.fn.getqflist({ id = 0 }).id)
+  for _, action in ipairs({ 'local', 'pr' }) do
+    fails(function()
+      slop.command({ fargs = { action } })
+    end, 'Unknown Slop action')
+  end
   slop.stop()
   assert(vim.wait(1000, function()
     return require('gitsigns.config').config.base == nil

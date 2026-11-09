@@ -52,7 +52,7 @@ function M.pending(session)
     { pr = session.pr.id }
   )
   local pr = data.node
-  assert(pr and pr.headRefOid == session.pr.headRefOid, 'PR head changed; restart :Slop pr')
+  assert(pr and pr.headRefOid == session.pr.headRefOid, 'PR head changed; restart :Slop')
   local review
   for _, candidate in ipairs(pr.reviews.nodes) do
     if candidate.author and candidate.author.login == data.viewer.login then

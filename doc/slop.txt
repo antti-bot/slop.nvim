@@ -17,9 +17,9 @@ CONTENTS                                                        *slop* *slop.nvi
 ==============================================================================
 1. SETUP                                                        *slop-setup*
 
-Requires Neovim 0.11+, git, and lewis6991/gitsigns.nvim. Configure Gitsigns as
-usual. For GitHub reviews, install gh and authenticate using `gh auth login`.
-Local reviews do not require gh. Run |:checkhealth| slop to check dependencies.
+Requires Neovim 0.11+, git, lewis6991/gitsigns.nvim, and gh. Configure Gitsigns
+as usual and authenticate using `gh auth login`. Run |:checkhealth| slop to
+check dependencies.
 
 No setup call is required. Optional mappings: >lua
     require('slop').setup({ mappings = true })
@@ -33,22 +33,18 @@ keys you intend to use in your package manager's specification.
 2. COMMANDS                                                     *slop-commands*
 
                                                                 *:Slop*
-:Slop [local|pr]
+:Slop
     Start a review in the repository of the current source file, or the current
     directory. From Slop buffers, reuse the active repository.
 
-    With no argument, find the current branch's PR using `gh pr view`. Diff
-    against its merge base with HEAD. Fall back to HEAD only when gh reports
-    that the branch has no PR. Authentication/network failures remain errors.
-
-    `local` always compares against HEAD without contacting GitHub.
-    `pr` requires a PR and never falls back.
+    Find the current branch's PR using `gh pr view` and diff against its merge
+    base with HEAD. A PR is required. Missing PRs and authentication/network
+    failures are reported as errors.
 
     Change Gitsigns' global base, populate quickfix with this repository's
     changed hunks, open quickfix, and jump to the first hunk in the editor.
     Native |:cnext|, |:cprevious|, |:cc|, |:copen|, and Gitsigns operations work
-    normally. Untracked files are included if Gitsigns' attach_to_untracked is
-    enabled. There is one active review per Neovim instance.
+    normally. There is one active review per Neovim instance.
 
 :[range]Slop comment                                             *slop-comment*
     Open a Markdown buffer for a comment on the current source line or the
@@ -172,10 +168,12 @@ diff views remain Gitsigns' responsibility. No mappings replace gc, gr, ]c,
 - The PR base commit must exist locally. Fetch its base branch if necessary.
 - New comments require HEAD to equal the PR head and the source file/buffer to
   match that commit, so local edits cannot silently shift GitHub line numbers.
+  Local edits can appear in review hunks, but commenting on an edited file is
+  blocked until it matches the PR head again. Starting a review keeps your edits.
 - Only RIGHT-side source comments are supported. GitHub checks whether a line
   or range lies in a commentable diff/context region. Removed lines can be
   inspected with Gitsigns, but cannot be targeted as LEFT-side comments.
-- If the PR head changes, restart :Slop pr. Save/discard modified Slop buffers
+- If the PR head changes, restart :Slop. Save/discard modified Slop buffers
   before changing sessions. A comment buffer belongs to the session that
   opened it and cannot write into a different review session.
 - Review submission uses COMMENT, without approving or requesting changes.
@@ -193,8 +191,8 @@ diff views remain Gitsigns' responsibility. No mappings replace gc, gr, ]c,
 require('slop').setup({ mappings = false })                       *slop.setup()*
     Configure opt-in default mappings. The :Slop command needs no setup call.
 
-require('slop').start(mode)                                      *slop.start()*
-    mode: nil (auto), "local", or "pr". Gitsigns updates asynchronously.
+require('slop').start()                                          *slop.start()*
+    Start a PR review. Gitsigns updates asynchronously.
 
 require('slop').comment(first, last)                              *slop.comment()*
     Open a source comment; 1-based line numbers. Defaults to the cursor line.

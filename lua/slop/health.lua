@@ -19,7 +19,7 @@ function M.check()
   else
     vim.health.error('Install and configure lewis6991/gitsigns.nvim')
   end
-  vim.health.info('For GitHub reviews, authenticate with `gh auth login` (no network request made by this check)')
+  vim.health.info('Authenticate with `gh auth login` (no network request made by this check)')
 end
 
 return M

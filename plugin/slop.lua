@@ -13,7 +13,7 @@ end, {
   range = true,
   desc = 'Review code with Gitsigns and GitHub draft comments',
   complete = function()
-    return { 'local', 'pr', 'comment', 'suggest', 'drafts', 'submit', 'submit-comment', 'viewed', 'stop' }
+    return { 'comment', 'suggest', 'drafts', 'submit', 'submit-comment', 'viewed', 'stop' }
   end,
 })
 
