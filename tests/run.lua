@@ -1,7 +1,9 @@
 local project = vim.fn.getcwd()
 vim.o.swapfile = false
 vim.opt.rtp:prepend(project)
-vim.opt.rtp:prepend(assert(vim.env.GITSIGNS_RTP, 'Set GITSIGNS_RTP to a gitsigns.nvim checkout'))
+-- The tests change directory below; resolve relative dependency paths first.
+local gitsigns = assert(vim.env.GITSIGNS_RTP, 'Set GITSIGNS_RTP to a gitsigns.nvim checkout')
+vim.opt.rtp:prepend(vim.fn.fnamemodify(gitsigns, ':p'))
 vim.env.PATH = project .. '/tests:' .. vim.env.PATH
 vim.cmd('runtime plugin/slop.lua')
 local slop = require('slop')
