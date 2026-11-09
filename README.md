@@ -28,7 +28,7 @@ With lazy.nvim:
 
 ```lua
 {
-  'EskelinenAntti/slop.nvim',
+  'antti-bot/slop.nvim',
   dependencies = { 'lewis6991/gitsigns.nvim' },
   opts = { mappings = true }, -- optional <LocalLeader>r bindings
 }
@@ -39,7 +39,7 @@ With Neovim's `vim.pack` (on versions that provide it):
 ```lua
 vim.pack.add({
   'https://github.com/lewis6991/gitsigns.nvim',
-  'https://github.com/EskelinenAntti/slop.nvim',
+  'https://github.com/antti-bot/slop.nvim',
 })
 require('gitsigns').setup({ attach_to_untracked = true })
 require('slop').setup({ mappings = true })
