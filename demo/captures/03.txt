@@ -1,0 +1,24 @@
+    1 local M = {}
+    2 
+    3 -- Return the visible page of results.
+    4 function M.paginate(items, page, size)
+┃   5   page = math.max(1, page)
+┃   6   size = math.max(1, size)
+    7   local first = (page - 1) * size + 1
+    8   local last = math.min(first + size - 1, #items)
+    9   local result = {}
+   10   for i = first, last do
+   11     result[#result + 1] = items[i]
+   12   end
+   13   return result
+   14 end
+   15 
+  slop.nvim  |  pagination.lua                                             5:3  
+    1 pagination.lua|5| Added   (-4,0 +5,2):   page = math.max(1, page)         
+    2 pagination.lua|18| Changed (-16 +18):   return string.format("%d / %d", pa
+      ge, total)
+ 
+ 
+[Quickfix List] Slop: PR #42                                 1,1             All
+:cnext                                                                          
+                                                                                

@@ -3,6 +3,11 @@
 Review code where you edit it. Gitsigns shows the changes, quickfix takes you
 through the hunks, and ordinary Markdown buffers hold your GitHub review comments.
 
+[![slop.nvim demo](demo/slop-demo.gif)](demo/slop-demo.mp4)
+
+[Watch the 41-second demo](demo/slop-demo.mp4). Real Neovim workflow; GitHub
+responses are simulated using the test fixture.
+
 ```vim
 :Slop                    " PR merge base, or HEAD when this branch has no PR
 :cnext                   " Next hunk; :cprevious goes back

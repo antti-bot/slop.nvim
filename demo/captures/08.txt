@@ -1,0 +1,24 @@
+   12   end
+   13   return result
+   14 end
+   15 
+   16 -- Format a page label for the status line.
+   17 function M.label(page, total)
+┃  18   return string.format("%d / %d", page, total)
+   19 end
+  slop.nvim  |  pagination.lua                                            18:3  
+    1 ```suggestion
+    2   page = math.max(1, page)
+    3   size = math.max(1, size)
+    4 ```
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+  slop.nvim  |  slop://comment/2 [+]                                       1:1  
+:5,6Slop suggest                                                                
+                                                                                

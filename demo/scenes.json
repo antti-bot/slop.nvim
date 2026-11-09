@@ -1,0 +1,80 @@
+[
+  {
+    "title": "Review code where you edit it",
+    "caption": "slop.nvim  /  native Neovim code review",
+    "seconds": 3,
+    "file": "00.html"
+  },
+  {
+    "title": "Start a review",
+    "caption": ":Slop  finds the PR and loads changed hunks",
+    "seconds": 2,
+    "file": "01.html"
+  },
+  {
+    "title": "Changes in native quickfix",
+    "caption": "Gitsigns marks the diff; quickfix lists the hunks",
+    "seconds": 4,
+    "file": "02.html"
+  },
+  {
+    "title": "Move between hunks",
+    "caption": ":cnext  /  :cprevious",
+    "seconds": 2,
+    "file": "03.html"
+  },
+  {
+    "title": "Stay in your source file",
+    "caption": "Jump straight to the next change",
+    "seconds": 3,
+    "file": "04.html"
+  },
+  {
+    "title": "Comment on a line",
+    "caption": ":Slop comment",
+    "seconds": 2,
+    "file": "05.html"
+  },
+  {
+    "title": "Write ordinary Markdown",
+    "caption": "A normal buffer, with all your editing commands",
+    "seconds": 4,
+    "file": "06.html"
+  },
+  {
+    "title": "Save a draft",
+    "caption": ":write  saves the comment without publishing the review",
+    "seconds": 3,
+    "file": "07.html"
+  },
+  {
+    "title": "Suggest a replacement",
+    "caption": ":5,6Slop suggest  inserts the selected source lines",
+    "seconds": 3,
+    "file": "08.html"
+  },
+  {
+    "title": "Propose the exact edit",
+    "caption": "Edit the fenced suggestion using normal Vim commands",
+    "seconds": 4,
+    "file": "09.html"
+  },
+  {
+    "title": "Manage the draft review",
+    "caption": ":Slop drafts  /  Enter to edit  /  dd then :w to delete",
+    "seconds": 4,
+    "file": "10.html"
+  },
+  {
+    "title": "Add a review summary",
+    "caption": ":Slop submit-comment",
+    "seconds": 3,
+    "file": "11.html"
+  },
+  {
+    "title": "Submit when ready",
+    "caption": ":write  submits the summary and draft comments together",
+    "seconds": 4,
+    "file": "12.html"
+  }
+]
