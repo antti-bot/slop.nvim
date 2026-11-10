@@ -71,7 +71,7 @@ function M.pending(session)
       query($review: ID!, $cursor: String) {
         node(id: $review) { ... on PullRequestReview {
           comments(first: 100, after: $cursor) {
-            nodes { id body path line startLine originalLine originalStartLine diffHunk }
+            nodes { id body path line startLine originalLine originalStartLine }
             pageInfo { hasNextPage endCursor }
           }
         } }

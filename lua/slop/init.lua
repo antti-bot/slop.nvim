@@ -76,7 +76,6 @@ local function comment_buffer(s, target, body, id)
   end)
   editors[buf] = s
   vim.b[buf].slop_target = target
-  vim.b[buf].slop_session = true
   return buf
 end
 
@@ -297,7 +296,7 @@ end
 
 function M.viewed()
   local s = current()
-  local qf = vim.fn.getqflist({ id = 0, idx = 0, items = 0, context = 0 })
+  local qf = vim.fn.getqflist({ id = 0, idx = 0, items = 0 })
   assert(qf.id == s.qfid, 'Current quickfix list is not the active Slop review')
   if #qf.items == 0 then
     return
