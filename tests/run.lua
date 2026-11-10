@@ -302,6 +302,20 @@ local function test()
   close()
   slop.submit()
 
+  -- Adding/submitting only needs review discovery, even if comment loading fails.
+  slop.comment(1, 1)
+  set({ 'Start a draft' })
+  vim.cmd('wq')
+  slop.comment(1, 1)
+  set({ 'Independent of comment loading' })
+  read().fail_comments = true
+  write()
+  vim.cmd('wq')
+  slop.submit()
+  eq(2, #read().submitted.comments)
+  state.fail_comments = nil
+  write()
+
   -- Real visual-mode mappings preserve the selected source range.
   source()
   slop.setup({ mappings = true })

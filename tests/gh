@@ -34,6 +34,8 @@ if 'viewer { login }' in query:
         'reviews': {'nodes': [{'id': review, 'author': {'login': 'reviewer'}}] if review else []},
     }}
 elif 'comments(first: 100' in query:
+    if state.get('fail_comments'):
+        fail('comment loading unavailable')
     # Deliberately paginate to catch reviews whose comments span multiple pages.
     offset = int(variables.get('cursor', '0'))
     page = comments[offset:offset + 2]

@@ -37,7 +37,7 @@ end
 
 -- Only the viewer's PENDING review is ever writable. Published comments are not
 -- candidates, even if another client submitted the review while a buffer was open.
-function M.pending(session)
+local function pending_review(session)
   local data = graphql(
     session,
     [[
@@ -53,13 +53,15 @@ function M.pending(session)
   )
   local pr = data.node
   assert(pr and pr.headRefOid == session.pr.headRefOid, 'PR head changed; restart :Slop')
-  local review
   for _, candidate in ipairs(pr.reviews.nodes) do
     if candidate.author and candidate.author.login == data.viewer.login then
-      review = candidate
-      break
+      return candidate.id
     end
   end
+end
+
+function M.pending(session)
+  local review = pending_review(session)
   if not review then
     return { comments = {} }
   end
@@ -77,7 +79,7 @@ function M.pending(session)
         } }
       }
     ]],
-      { review = review.id, cursor = cursor }
+      { review = review, cursor = cursor }
     ).node.comments
     for _, comment in ipairs(page.nodes) do
       local last = comment.line ~= vim.NIL and comment.line or comment.originalLine
@@ -94,7 +96,7 @@ function M.pending(session)
     end
     cursor = page.pageInfo.hasNextPage and page.pageInfo.endCursor or nil
   until not cursor
-  return { id = review.id, comments = comments }
+  return { id = review, comments = comments }
 end
 
 local function thread(target, body)
@@ -106,7 +108,7 @@ local function thread(target, body)
 end
 
 function M.add(session, target, body)
-  local review = M.pending(session).id
+  local review = pending_review(session)
   local input = thread(target, body)
   if review then
     input.pullRequestReviewId = review
@@ -199,7 +201,7 @@ function M.delete(session, snapshot, ids)
 end
 
 function M.submit(session, body)
-  local review = M.pending(session).id
+  local review = pending_review(session)
   if review then
     graphql(
       session,
