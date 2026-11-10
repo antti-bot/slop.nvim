@@ -242,6 +242,35 @@ local function test()
   eq(vim.NIL, read().review)
   eq(1, #state.submitted.comments)
 
+  -- A batch checks every snapshot before deleting, and retries partial progress.
+  for _, body in ipairs({ 'Batch first', 'Batch second', 'Batch third' }) do
+    slop.comment(1, 1)
+    set({ body })
+    vim.cmd('wq')
+  end
+  list = slop.drafts()
+  local rows = vim.api.nvim_buf_get_lines(list, 0, -1, false)
+  set({})
+  read().comments[1].body = 'Changed remotely'
+  write()
+  fails(save, 'Draft comment changed')
+  eq(3, #read().comments)
+  state.comments[1].body = 'Batch first'
+  state.fail_delete = state.comments[2].id
+  write()
+  fails(save, 'simulated deletion failure')
+  eq(2, #read().comments)
+  -- A row deleted successfully before the failure cannot be restored locally.
+  set({ rows[3] })
+  fails(save, 'Only whole-line deletion/reordering')
+  set({})
+  read().fail_delete = nil
+  write()
+  save()
+  eq(0, #read().comments)
+  close()
+  slop.submit()
+
   -- Real visual-mode mappings preserve the selected source range.
   source()
   slop.setup({ mappings = true })

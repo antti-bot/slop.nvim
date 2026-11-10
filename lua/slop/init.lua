@@ -35,23 +35,6 @@ local function unsaved(s, except)
   end
 end
 
-local function find_comment(comments, id)
-  for _, comment in ipairs(comments) do
-    if comment.id == id then
-      return comment
-    end
-  end
-end
-
-local function draft_comment(s, id, original)
-  pr_session(s)
-  local _, comments = github.pending(s)
-  local comment = find_comment(comments, id)
-  assert(comment, 'Comment is no longer in your draft review; reopen :Slop drafts')
-  assert(comment.body == original, 'Comment changed on GitHub; reopen :Slop drafts before editing')
-  return comment
-end
-
 local function comment_buffer(s, target, body, id)
   local original = body or ''
   local buf = buffer.open('comment', vim.split(original, '\n', { plain = true }), function(_, lines)
@@ -62,10 +45,7 @@ local function comment_buffer(s, target, body, id)
       return
     end
     if id then
-      draft_comment(s, id, original)
-      if text ~= original then
-        github.update(s, id, text)
-      end
+      github.update(s, id, original, text)
     else
       -- Recheck the source: local edits must never silently shift GitHub anchors.
       M.check_target(s, target)
@@ -210,9 +190,9 @@ function M.drafts()
     assert(not vim.bo[s.list].modified, 'Save or discard draft list changes first')
     vim.api.nvim_buf_delete(s.list, { force = true })
   end
-  local review, comments = github.pending(s)
+  local snapshot = github.pending(s)
   local entries, order = {}, {}
-  for _, comment in ipairs(comments) do
+  for _, comment in ipairs(snapshot.comments) do
     local line = comment.line ~= vim.NIL and comment.line or comment.originalLine
     local first = comment.startLine ~= vim.NIL and comment.startLine
       or (comment.originalStartLine ~= vim.NIL and comment.originalStartLine)
@@ -228,27 +208,19 @@ function M.drafts()
       if line ~= '' then
         local id = line:match('^(%S+)\t')
         assert(
-          entries[id] and entries[id].label == line and not keep[id],
+          github.find_comment(snapshot, id) and entries[id].label == line and not keep[id],
           'Only whole-line deletion/reordering is supported; press <CR> to edit a comment'
         )
         keep[id] = true
       end
     end
-    local live_review, live = github.pending(s)
-    assert(live_review == review, 'Draft review changed; reopen :Slop drafts')
-    -- Validate every deletion before sending any mutations.
     local remove = {}
-    for id, entry in pairs(entries) do
+    for id in pairs(entries) do
       if not keep[id] then
-        local comment = find_comment(live, id)
-        assert(comment and comment.body == entry.comment.body, 'Draft comment changed; reopen :Slop drafts')
-        remove[#remove + 1] = id
+        remove[id] = true
       end
     end
-    for _, id in ipairs(remove) do
-      github.delete(s, id)
-      entries[id] = nil -- Retrying a partial failure must not delete twice.
-    end
+    github.delete(s, snapshot, remove)
     notify('Draft list saved')
   end)
   s.list = buf
@@ -256,8 +228,9 @@ function M.drafts()
   vim.keymap.set('n', '<CR>', function()
     local id = vim.fn.getline('.'):match('^(%S+)\t')
     local entry = entries[id]
-    assert(entry, 'No draft comment on this line')
-    local comment = draft_comment(s, id, entry.comment.body)
+    assert(entry and github.find_comment(snapshot, id), 'No draft comment on this line')
+    pr_session(s)
+    local comment = github.comment(s, id, entry.comment.body)
     -- Suggestion text is taken from source selections, never parsed from a diff.
     comment_buffer(s, { path = comment.path }, comment.body, id)
   end, { buffer = buf, desc = 'Edit draft comment' })
@@ -269,8 +242,7 @@ function M.submit(with_comment)
   local function submit(body, except)
     pr_session(s)
     unsaved(s, except)
-    local review = github.pending(s)
-    github.submit(s, review, body)
+    github.submit(s, body)
     notify('Review submitted')
   end
   if not with_comment then

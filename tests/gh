@@ -76,7 +76,11 @@ elif 'updatePullRequestReviewComment(' in query:
     result = {'updatePullRequestReviewComment': {'pullRequestReviewComment': comment}}
 elif 'deletePullRequestReviewComment(' in query:
     assert review
-    state['comments'] = [c for c in comments if c['id'] != variables['input']['id']]
+    comment_id = variables['input']['id']
+    if state.get('fail_delete') == comment_id:
+        fail('simulated deletion failure')
+    assert any(c['id'] == comment_id for c in comments), 'Comment already deleted'
+    state['comments'] = [c for c in comments if c['id'] != comment_id]
     result = {'deletePullRequestReviewComment': {'clientMutationId': None}}
 elif 'submitPullRequestReview(' in query:
     data = variables['input']
