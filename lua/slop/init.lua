@@ -325,24 +325,24 @@ end
 function M.setup(opts)
   config = vim.tbl_extend('force', config, opts or {})
   local actions = {
-    Comment = { 'comment', 'c', true },
-    Suggest = { 'suggest', 's', true },
-    Drafts = { 'drafts', 'd' },
-    Submit = { 'submit', 'r' },
-    SubmitComment = { 'submit-comment', 'R' },
-    Viewed = { 'viewed', 'v' },
+    Comment = { command = 'comment', key = 'c', visual = true },
+    Suggest = { command = 'suggest', key = 's', visual = true },
+    Drafts = { command = 'drafts', key = 'd' },
+    Submit = { command = 'submit', key = 'r' },
+    SubmitComment = { command = 'submit-comment', key = 'R' },
+    Viewed = { command = 'viewed', key = 'v' },
   }
   for name, action in pairs(actions) do
     local plug = '<Plug>(Slop' .. name .. ')'
-    vim.keymap.set('n', plug, '<Cmd>Slop ' .. action[1] .. '<CR>', { desc = 'Slop: ' .. action[1] })
-    if action[3] then
-      vim.keymap.set('x', plug, ":<C-U>'<,'>Slop " .. action[1] .. '<CR>', { silent = true })
+    vim.keymap.set('n', plug, '<Cmd>Slop ' .. action.command .. '<CR>', { desc = 'Slop: ' .. action.command })
+    if action.visual then
+      vim.keymap.set('x', plug, ":<C-U>'<,'>Slop " .. action.command .. '<CR>', { silent = true })
     end
     if config.mappings then
-      local lhs = '<LocalLeader>r' .. action[2]
-      for _, mode in ipairs(action[3] and { 'n', 'x' } or { 'n' }) do
+      local lhs = '<LocalLeader>r' .. action.key
+      for _, mode in ipairs(action.visual and { 'n', 'x' } or { 'n' }) do
         if vim.fn.maparg(lhs, mode) == '' then
-          vim.keymap.set(mode, lhs, plug, { desc = 'Slop: ' .. action[1] })
+          vim.keymap.set(mode, lhs, plug, { desc = 'Slop: ' .. action.command })
         end
       end
     end
