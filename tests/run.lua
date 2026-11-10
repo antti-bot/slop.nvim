@@ -61,6 +61,16 @@ local function test()
   git('config', 'user.name', 'Test')
   git('config', 'user.email', 'test@example.com')
   vim.fn.writefile({ 'one', 'two', 'three', 'four', 'five' }, tmp .. '/file.lua')
+  -- Source validation compares Neovim's decoded lines with committed bytes.
+  local source_files = {
+    { name = 'bom.txt', bytes = '\239\187\191hello\n', encoding = 'utf-8' },
+    { name = 'dos.txt', bytes = 'hello\r\nworld\r\n', encoding = 'utf-8' },
+    { name = 'latin1.txt', bytes = 'caf\233\n', encoding = 'latin1' },
+    { name = 'no-newline.txt', bytes = 'hello', encoding = 'utf-8' },
+  }
+  for _, file in ipairs(source_files) do
+    vim.fn.writefile(vim.split(file.bytes, '\n', { plain = true }), tmp .. '/' .. file.name, 'b')
+  end
   git('add', '.')
   git('commit', '-qm', 'base')
   local base = git('rev-parse', 'HEAD')
@@ -91,6 +101,18 @@ local function test()
   eq(true, vim.fn.getqflist({ context = 0 }).context.slop)
   assert(#vim.fn.getqflist() > 0)
   eq(tmp .. '/file.lua', vim.api.nvim_buf_get_name(0))
+  for _, file in ipairs(source_files) do
+    vim.cmd('edit ++enc=' .. file.encoding .. ' ' .. vim.fn.fnameescape(tmp .. '/' .. file.name))
+    slop.comment(1, 1)
+    close()
+  end
+  vim.fn.writefile({ 'not in the PR' }, tmp .. '/untracked.txt')
+  vim.cmd.edit(vim.fn.fnameescape(tmp .. '/untracked.txt'))
+  fails(function()
+    slop.comment(1, 1)
+  end, 'but not in')
+  vim.fn.delete(tmp .. '/untracked.txt')
+  source()
   -- Native quickfix navigation and mark-viewed do not touch GitHub.
   vim.fn.setloclist(0, {}, ' ', { items = { { filename = tmp .. '/file.lua', lnum = 1, text = 'unrelated' } } })
   vim.cmd('lopen')
