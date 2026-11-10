@@ -61,6 +61,16 @@ local function test()
   git('config', 'user.name', 'Test')
   git('config', 'user.email', 'test@example.com')
   vim.fn.writefile({ 'one', 'two', 'three', 'four', 'five' }, tmp .. '/file.lua')
+  -- Source validation compares Neovim's decoded lines with committed bytes.
+  local source_files = {
+    { name = 'bom.txt', bytes = '\239\187\191hello\n', encoding = 'utf-8' },
+    { name = 'dos.txt', bytes = 'hello\r\nworld\r\n', encoding = 'utf-8' },
+    { name = 'latin1.txt', bytes = 'caf\233\n', encoding = 'latin1' },
+    { name = 'no-newline.txt', bytes = 'hello', encoding = 'utf-8' },
+  }
+  for _, file in ipairs(source_files) do
+    vim.fn.writefile(vim.split(file.bytes, '\n', { plain = true }), tmp .. '/' .. file.name, 'b')
+  end
   git('add', '.')
   git('commit', '-qm', 'base')
   local base = git('rev-parse', 'HEAD')
@@ -91,6 +101,18 @@ local function test()
   eq(true, vim.fn.getqflist({ context = 0 }).context.slop)
   assert(#vim.fn.getqflist() > 0)
   eq(tmp .. '/file.lua', vim.api.nvim_buf_get_name(0))
+  for _, file in ipairs(source_files) do
+    vim.cmd('edit ++enc=' .. file.encoding .. ' ' .. vim.fn.fnameescape(tmp .. '/' .. file.name))
+    slop.comment(1, 1)
+    close()
+  end
+  vim.fn.writefile({ 'not in the PR' }, tmp .. '/untracked.txt')
+  vim.cmd.edit(vim.fn.fnameescape(tmp .. '/untracked.txt'))
+  fails(function()
+    slop.comment(1, 1)
+  end, 'but not in')
+  vim.fn.delete(tmp .. '/untracked.txt')
+  source()
   -- Native quickfix navigation and mark-viewed do not touch GitHub.
   vim.fn.setloclist(0, {}, ' ', { items = { { filename = tmp .. '/file.lua', lnum = 1, text = 'unrelated' } } })
   vim.cmd('lopen')
@@ -168,8 +190,17 @@ local function test()
   write()
   close()
 
+  -- GitHub can retain only the original range for an outdated comment.
+  read().comments[3].line = vim.NIL
+  state.comments[3].startLine = vim.NIL
+  state.comments[3].originalStartLine = 2
+  write()
   local list = slop.drafts()
   eq(3, vim.api.nvim_buf_line_count(list))
+  local labels = vim.api.nvim_buf_get_lines(list, 0, -1, false)
+  for index, range in ipairs({ 'file.lua:1-2', 'file.lua:5-5', 'file.lua:2-3' }) do
+    assert(labels[index]:find(range, 1, true), labels[index])
+  end
   -- The <CR> binding opens the actual draft; saving edits, not another comment.
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<CR>', true, false, true), 'xt', false)
@@ -242,6 +273,49 @@ local function test()
   eq(vim.NIL, read().review)
   eq(1, #state.submitted.comments)
 
+  -- A batch checks every snapshot before deleting, and retries partial progress.
+  for _, body in ipairs({ 'Batch first', 'Batch second', 'Batch third' }) do
+    slop.comment(1, 1)
+    set({ body })
+    vim.cmd('wq')
+  end
+  list = slop.drafts()
+  local rows = vim.api.nvim_buf_get_lines(list, 0, -1, false)
+  set({})
+  read().comments[1].body = 'Changed remotely'
+  write()
+  fails(save, 'Draft comment changed')
+  eq(3, #read().comments)
+  state.comments[1].body = 'Batch first'
+  state.fail_delete = state.comments[2].id
+  write()
+  fails(save, 'simulated deletion failure')
+  eq(2, #read().comments)
+  -- A row deleted successfully before the failure cannot be restored locally.
+  set({ rows[3] })
+  fails(save, 'Only whole-line deletion/reordering')
+  set({})
+  read().fail_delete = nil
+  write()
+  save()
+  eq(0, #read().comments)
+  close()
+  slop.submit()
+
+  -- Adding/submitting only needs review discovery, even if comment loading fails.
+  slop.comment(1, 1)
+  set({ 'Start a draft' })
+  vim.cmd('wq')
+  slop.comment(1, 1)
+  set({ 'Independent of comment loading' })
+  read().fail_comments = true
+  write()
+  vim.cmd('wq')
+  slop.submit()
+  eq(2, #read().submitted.comments)
+  state.fail_comments = nil
+  write()
+
   -- Real visual-mode mappings preserve the selected source range.
   source()
   slop.setup({ mappings = true })
@@ -254,6 +328,30 @@ local function test()
   slop.suggest()
   eq({ '```suggestion', 'ONE', 'TWO', '```' }, vim.api.nvim_buf_get_lines(0, 0, -1, false))
   close()
+
+  -- All review editor types participate in the same session lifecycle.
+  for _, open in ipairs({
+    function()
+      slop.comment(1, 1)
+    end,
+    slop.drafts,
+    function()
+      slop.submit(true)
+    end,
+  }) do
+    open()
+    set({ 'Unsaved review work' })
+    fails(slop.start, 'Save or discard')
+    fails(slop.stop, 'Save or discard')
+    fails(slop.submit, 'Save or discard')
+    vim.bo.modified = false
+    slop.stop()
+    set({ 'Cannot write after stopping' })
+    fails(save, 'Start a review')
+    close()
+    source()
+    start()
+  end
 
   -- Restarting/ending the review invalidates old saved comment buffers.
   source()

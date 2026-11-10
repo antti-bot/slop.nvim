@@ -37,7 +37,7 @@ end
 
 -- Only the viewer's PENDING review is ever writable. Published comments are not
 -- candidates, even if another client submitted the review while a buffer was open.
-function M.pending(session)
+local function pending_review(session)
   local data = graphql(
     session,
     [[
@@ -53,15 +53,17 @@ function M.pending(session)
   )
   local pr = data.node
   assert(pr and pr.headRefOid == session.pr.headRefOid, 'PR head changed; restart :Slop')
-  local review
   for _, candidate in ipairs(pr.reviews.nodes) do
     if candidate.author and candidate.author.login == data.viewer.login then
-      review = candidate
-      break
+      return candidate.id
     end
   end
+end
+
+function M.pending(session)
+  local review = pending_review(session)
   if not review then
-    return nil, {}
+    return { comments = {} }
   end
   local comments, cursor = {}, nil
   repeat
@@ -71,18 +73,30 @@ function M.pending(session)
       query($review: ID!, $cursor: String) {
         node(id: $review) { ... on PullRequestReview {
           comments(first: 100, after: $cursor) {
-            nodes { id body path line startLine originalLine originalStartLine diffHunk }
+            nodes { id body path line startLine originalLine originalStartLine }
             pageInfo { hasNextPage endCursor }
           }
         } }
       }
     ]],
-      { review = review.id, cursor = cursor }
+      { review = review, cursor = cursor }
     ).node.comments
-    vim.list_extend(comments, page.nodes)
+    for _, comment in ipairs(page.nodes) do
+      local last = comment.line ~= vim.NIL and comment.line or comment.originalLine
+      local first = comment.startLine ~= vim.NIL and comment.startLine
+        or (comment.originalStartLine ~= vim.NIL and comment.originalStartLine)
+        or last
+      comments[#comments + 1] = {
+        id = comment.id,
+        body = comment.body,
+        path = comment.path,
+        first = first,
+        last = last,
+      }
+    end
     cursor = page.pageInfo.hasNextPage and page.pageInfo.endCursor or nil
   until not cursor
-  return review.id, comments
+  return { id = review, comments = comments }
 end
 
 local function thread(target, body)
@@ -94,7 +108,7 @@ local function thread(target, body)
 end
 
 function M.add(session, target, body)
-  local review = M.pending(session)
+  local review = pending_review(session)
   local input = thread(target, body)
   if review then
     input.pullRequestReviewId = review
@@ -122,7 +136,26 @@ function M.add(session, target, body)
   return data.addPullRequestReview.pullRequestReview.comments.nodes[1].id
 end
 
-function M.update(session, id, body)
+function M.find_comment(snapshot, id)
+  for _, comment in ipairs(snapshot.comments) do
+    if comment.id == id then
+      return comment
+    end
+  end
+end
+
+function M.comment(session, id, original)
+  local comment = M.find_comment(M.pending(session), id)
+  assert(comment, 'Comment is no longer in your draft review; reopen :Slop drafts')
+  assert(comment.body == original, 'Comment changed on GitHub; reopen :Slop drafts before editing')
+  return comment
+end
+
+function M.update(session, id, original, body)
+  M.comment(session, id, original)
+  if body == original then
+    return
+  end
   graphql(
     session,
     [[
@@ -134,7 +167,7 @@ function M.update(session, id, body)
   )
 end
 
-function M.delete(session, id)
+local function delete_comment(session, id)
   graphql(
     session,
     [[
@@ -146,7 +179,29 @@ function M.delete(session, id)
   )
 end
 
-function M.submit(session, review, body)
+-- The snapshot belongs to the open draft list. Remove successful deletions from
+-- it so a partial failure can be retried without deleting a comment twice.
+function M.delete(session, snapshot, ids)
+  local live = M.pending(session)
+  assert(live.id == snapshot.id, 'Draft review changed; reopen :Slop drafts')
+  local remove = {}
+  for index, comment in ipairs(snapshot.comments) do
+    if ids[comment.id] then
+      local current = M.find_comment(live, comment.id)
+      assert(current and current.body == comment.body, 'Draft comment changed; reopen :Slop drafts')
+      remove[#remove + 1] = index
+    end
+  end
+  -- Validate the entire selection before sending any mutations.
+  for i = #remove, 1, -1 do
+    local index = remove[i]
+    delete_comment(session, snapshot.comments[index].id)
+    table.remove(snapshot.comments, index)
+  end
+end
+
+function M.submit(session, body)
+  local review = pending_review(session)
   if review then
     graphql(
       session,

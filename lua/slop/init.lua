@@ -1,10 +1,10 @@
 local system = require('slop.system')
 local github = require('slop.github')
 local buffer = require('slop.buffer')
+local source = require('slop.source')
 local M = {}
 local session
 local generation = 0
-local editors = {}
 local config = { mappings = false }
 
 local function notify(message)
@@ -26,102 +26,45 @@ local function pr_session(expected)
 end
 
 local function unsaved(s, except)
-  for buf, owner in pairs(editors) do
+  for buf in pairs(s.editors) do
     if not vim.api.nvim_buf_is_valid(buf) then
-      editors[buf] = nil
-    elseif owner == s and buf ~= except then
+      s.editors[buf] = nil
+    elseif buf ~= except then
       assert(not vim.bo[buf].modified, 'Save or discard other Slop buffers first')
     end
   end
 end
 
-local function find_comment(comments, id)
-  for _, comment in ipairs(comments) do
-    if comment.id == id then
-      return comment
-    end
-  end
-end
-
-local function draft_comment(s, id, original)
-  pr_session(s)
-  local _, comments = github.pending(s)
-  local comment = find_comment(comments, id)
-  assert(comment, 'Comment is no longer in your draft review; reopen :Slop drafts')
-  assert(comment.body == original, 'Comment changed on GitHub; reopen :Slop drafts before editing')
-  return comment
+-- Every review editor belongs to its opening session, including deferred writes.
+local function open_editor(s, kind, lines, write)
+  local buf = buffer.open(kind, lines, function(bufnr, content)
+    pr_session(s)
+    write(bufnr, content)
+  end)
+  s.editors[buf] = true
+  return buf
 end
 
 local function comment_buffer(s, target, body, id)
   local original = body or ''
-  local buf = buffer.open('comment', vim.split(original, '\n', { plain = true }), function(_, lines)
-    pr_session(s)
+  local buf = open_editor(s, 'comment', vim.split(original, '\n', { plain = true }), function(_, lines)
     local text = table.concat(lines, '\n')
     if vim.trim(text) == '' then
       notify('Empty comment aborted; any existing draft comment was kept')
       return
     end
     if id then
-      draft_comment(s, id, original)
-      if text ~= original then
-        github.update(s, id, text)
-      end
+      github.update(s, id, original, text)
     else
       -- Recheck the source: local edits must never silently shift GitHub anchors.
-      M.check_target(s, target)
+      source.check(s, target)
       id = github.add(s, target, text)
     end
     original = text
     notify('Comment saved to draft review')
   end)
-  editors[buf] = s
   vim.b[buf].slop_target = target
-  vim.b[buf].slop_session = true
   return buf
-end
-
-function M.check_target(s, target)
-  assert(target and target.path, 'No source selection for a suggestion')
-  assert(
-    system.git(s.root, { 'diff', '--name-only', s.pr.headRefOid, '--', target.path }) == '',
-    'File differs from the PR head; save/stash local changes before commenting'
-  )
-  if target.buf and vim.api.nvim_buf_is_valid(target.buf) then
-    assert(not vim.bo[target.buf].modified, 'Save/stash local changes before commenting')
-    local head = system.run(s.root, { 'git', 'show', s.pr.headRefOid .. ':' .. target.path })
-    local encoding = vim.bo[target.buf].fileencoding
-    if encoding ~= '' and encoding ~= 'utf-8' then
-      head = assert(vim.iconv(head, encoding, 'utf-8'), 'Unable to compare this file encoding with the PR head')
-    end
-    if vim.bo[target.buf].bomb then
-      head = head:gsub('^\239\187\191', '')
-    end
-    if vim.bo[target.buf].fileformat == 'dos' then
-      head = head:gsub('\r\n', '\n')
-    end
-    local lines = vim.split(head, '\n', { plain = true })
-    if lines[#lines] == '' and #lines > 1 then
-      table.remove(lines)
-    end
-    assert(
-      vim.deep_equal(lines, vim.api.nvim_buf_get_lines(target.buf, 0, -1, false)),
-      'Buffer differs from the PR head; reload the file before commenting'
-    )
-  end
-end
-
-local function source_target(s, first, last)
-  local buf = vim.api.nvim_get_current_buf()
-  assert(vim.bo[buf].buftype == '', 'Comment from a source file in the checked-out PR')
-  local name = vim.fs.normalize(vim.api.nvim_buf_get_name(buf))
-  local prefix = s.root .. '/'
-  assert(name:sub(1, #prefix) == prefix, 'File is outside the review repository')
-  local target = { path = name:sub(#prefix + 1), first = first, last = last, buf = buf }
-  M.check_target(s, target)
-  -- An untracked file has no PR line numbers, even though `git diff` is empty.
-  system.git(s.root, { 'cat-file', '-e', s.pr.headRefOid .. ':' .. target.path })
-  target.lines = vim.api.nvim_buf_get_lines(buf, first - 1, last, false)
-  return target
 end
 
 function M.start()
@@ -137,7 +80,7 @@ function M.start()
   local pr, host = github.pr(root)
   local merged, base = pcall(system.git, root, { 'merge-base', 'HEAD', pr.baseRefOid })
   assert(merged, 'PR base is unavailable locally; fetch the base branch and retry :Slop\n' .. base)
-  local s = { root = root, pr = pr, host = host, base = base }
+  local s = { root = root, pr = pr, host = host, base = base, editors = {} }
   generation = generation + 1
   local request = generation
   session = nil
@@ -186,7 +129,7 @@ function M.comment(first, last)
   local s = pr_session()
   first = first or vim.fn.line('.')
   last = last or first
-  return comment_buffer(s, source_target(s, first, last))
+  return comment_buffer(s, source.capture(s, first, last))
 end
 
 function M.suggest(first, last)
@@ -213,58 +156,47 @@ function M.drafts()
     assert(not vim.bo[s.list].modified, 'Save or discard draft list changes first')
     vim.api.nvim_buf_delete(s.list, { force = true })
   end
-  local review, comments = github.pending(s)
+  local snapshot = github.pending(s)
   local entries, order = {}, {}
-  for _, comment in ipairs(comments) do
-    local line = comment.line ~= vim.NIL and comment.line or comment.originalLine
-    local first = comment.startLine ~= vim.NIL and comment.startLine
-      or (comment.originalStartLine ~= vim.NIL and comment.originalStartLine)
-      or line
-    local label = ('%s\t%s:%s-%s\t%s'):format(comment.id, comment.path, first, line, comment.body:gsub('%s+', ' '))
+  for _, comment in ipairs(snapshot.comments) do
+    local label = ('%s\t%s:%s-%s\t%s'):format(
+      comment.id,
+      comment.path,
+      comment.first,
+      comment.last,
+      comment.body:gsub('%s+', ' ')
+    )
     entries[comment.id] = { label = label, comment = comment }
     order[#order + 1] = label
   end
-  local buf = buffer.open('drafts', order, function(_, lines)
-    pr_session(s)
+  local buf = open_editor(s, 'drafts', order, function(_, lines)
     local keep = {}
     for _, line in ipairs(lines) do
       if line ~= '' then
         local id = line:match('^(%S+)\t')
         assert(
-          entries[id] and entries[id].label == line and not keep[id],
+          github.find_comment(snapshot, id) and entries[id].label == line and not keep[id],
           'Only whole-line deletion/reordering is supported; press <CR> to edit a comment'
         )
         keep[id] = true
       end
     end
-    local live_review, live = github.pending(s)
-    assert(live_review == review, 'Draft review changed; reopen :Slop drafts')
-    -- Validate every deletion before sending any mutations.
-    for id, entry in pairs(entries) do
-      if not keep[id] then
-        local comment = find_comment(live, id)
-        assert(comment and comment.body == entry.comment.body, 'Draft comment changed; reopen :Slop drafts')
-      end
-    end
     local remove = {}
     for id in pairs(entries) do
       if not keep[id] then
-        remove[#remove + 1] = id
+        remove[id] = true
       end
     end
-    for _, id in ipairs(remove) do
-      github.delete(s, id)
-      entries[id] = nil -- Retrying a partial failure must not delete twice.
-    end
+    github.delete(s, snapshot, remove)
     notify('Draft list saved')
   end)
   s.list = buf
-  editors[buf] = s
   vim.keymap.set('n', '<CR>', function()
     local id = vim.fn.getline('.'):match('^(%S+)\t')
     local entry = entries[id]
-    assert(entry, 'No draft comment on this line')
-    local comment = draft_comment(s, id, entry.comment.body)
+    assert(entry and github.find_comment(snapshot, id), 'No draft comment on this line')
+    pr_session(s)
+    local comment = github.comment(s, id, entry.comment.body)
     -- Suggestion text is taken from source selections, never parsed from a diff.
     comment_buffer(s, { path = comment.path }, comment.body, id)
   end, { buffer = buf, desc = 'Edit draft comment' })
@@ -276,8 +208,7 @@ function M.submit(with_comment)
   local function submit(body, except)
     pr_session(s)
     unsaved(s, except)
-    local review = github.pending(s)
-    github.submit(s, review, body)
+    github.submit(s, body)
     notify('Review submitted')
   end
   if not with_comment then
@@ -285,7 +216,7 @@ function M.submit(with_comment)
     return
   end
   local done = false
-  local buf = buffer.open('review', { '' }, function(bufnr, lines)
+  local buf = open_editor(s, 'review', { '' }, function(bufnr, lines)
     local body = table.concat(lines, '\n')
     if vim.trim(body) == '' then
       notify('Empty review comment aborted; draft review was kept')
@@ -295,13 +226,12 @@ function M.submit(with_comment)
     submit(body, bufnr)
     done = true
   end)
-  editors[buf] = s
   return buf
 end
 
 function M.viewed()
   local s = current()
-  local qf = vim.fn.getqflist({ id = 0, idx = 0, items = 0, context = 0 })
+  local qf = vim.fn.getqflist({ id = 0, idx = 0, items = 0 })
   assert(qf.id == s.qfid, 'Current quickfix list is not the active Slop review')
   if #qf.items == 0 then
     return
@@ -329,24 +259,24 @@ end
 function M.setup(opts)
   config = vim.tbl_extend('force', config, opts or {})
   local actions = {
-    Comment = { 'comment', 'c', true },
-    Suggest = { 'suggest', 's', true },
-    Drafts = { 'drafts', 'd' },
-    Submit = { 'submit', 'r' },
-    SubmitComment = { 'submit-comment', 'R' },
-    Viewed = { 'viewed', 'v' },
+    Comment = { command = 'comment', key = 'c', visual = true },
+    Suggest = { command = 'suggest', key = 's', visual = true },
+    Drafts = { command = 'drafts', key = 'd' },
+    Submit = { command = 'submit', key = 'r' },
+    SubmitComment = { command = 'submit-comment', key = 'R' },
+    Viewed = { command = 'viewed', key = 'v' },
   }
   for name, action in pairs(actions) do
     local plug = '<Plug>(Slop' .. name .. ')'
-    vim.keymap.set('n', plug, '<Cmd>Slop ' .. action[1] .. '<CR>', { desc = 'Slop: ' .. action[1] })
-    if action[3] then
-      vim.keymap.set('x', plug, ":<C-U>'<,'>Slop " .. action[1] .. '<CR>', { silent = true })
+    vim.keymap.set('n', plug, '<Cmd>Slop ' .. action.command .. '<CR>', { desc = 'Slop: ' .. action.command })
+    if action.visual then
+      vim.keymap.set('x', plug, ":<C-U>'<,'>Slop " .. action.command .. '<CR>', { silent = true })
     end
     if config.mappings then
-      local lhs = '<LocalLeader>r' .. action[2]
-      for _, mode in ipairs(action[3] and { 'n', 'x' } or { 'n' }) do
+      local lhs = '<LocalLeader>r' .. action.key
+      for _, mode in ipairs(action.visual and { 'n', 'x' } or { 'n' }) do
         if vim.fn.maparg(lhs, mode) == '' then
-          vim.keymap.set(mode, lhs, plug, { desc = 'Slop: ' .. action[1] })
+          vim.keymap.set(mode, lhs, plug, { desc = 'Slop: ' .. action.command })
         end
       end
     end
