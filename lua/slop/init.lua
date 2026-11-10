@@ -117,8 +117,6 @@ local function source_target(s, first, last)
   assert(name:sub(1, #prefix) == prefix, 'File is outside the review repository')
   local target = { path = name:sub(#prefix + 1), first = first, last = last, buf = buf }
   M.check_target(s, target)
-  -- An untracked file has no PR line numbers, even though `git diff` is empty.
-  system.git(s.root, { 'cat-file', '-e', s.pr.headRefOid .. ':' .. target.path })
   target.lines = vim.api.nvim_buf_get_lines(buf, first - 1, last, false)
   return target
 end
