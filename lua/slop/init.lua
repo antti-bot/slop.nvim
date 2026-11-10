@@ -240,15 +240,11 @@ function M.drafts()
     local live_review, live = github.pending(s)
     assert(live_review == review, 'Draft review changed; reopen :Slop drafts')
     -- Validate every deletion before sending any mutations.
+    local remove = {}
     for id, entry in pairs(entries) do
       if not keep[id] then
         local comment = find_comment(live, id)
         assert(comment and comment.body == entry.comment.body, 'Draft comment changed; reopen :Slop drafts')
-      end
-    end
-    local remove = {}
-    for id in pairs(entries) do
-      if not keep[id] then
         remove[#remove + 1] = id
       end
     end
