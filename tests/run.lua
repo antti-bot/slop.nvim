@@ -190,8 +190,17 @@ local function test()
   write()
   close()
 
+  -- GitHub can retain only the original range for an outdated comment.
+  read().comments[3].line = vim.NIL
+  state.comments[3].startLine = vim.NIL
+  state.comments[3].originalStartLine = 2
+  write()
   local list = slop.drafts()
   eq(3, vim.api.nvim_buf_line_count(list))
+  local labels = vim.api.nvim_buf_get_lines(list, 0, -1, false)
+  for index, range in ipairs({ 'file.lua:1-2', 'file.lua:5-5', 'file.lua:2-3' }) do
+    assert(labels[index]:find(range, 1, true), labels[index])
+  end
   -- The <CR> binding opens the actual draft; saving edits, not another comment.
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<CR>', true, false, true), 'xt', false)

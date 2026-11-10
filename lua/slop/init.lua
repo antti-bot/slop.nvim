@@ -159,11 +159,13 @@ function M.drafts()
   local snapshot = github.pending(s)
   local entries, order = {}, {}
   for _, comment in ipairs(snapshot.comments) do
-    local line = comment.line ~= vim.NIL and comment.line or comment.originalLine
-    local first = comment.startLine ~= vim.NIL and comment.startLine
-      or (comment.originalStartLine ~= vim.NIL and comment.originalStartLine)
-      or line
-    local label = ('%s\t%s:%s-%s\t%s'):format(comment.id, comment.path, first, line, comment.body:gsub('%s+', ' '))
+    local label = ('%s\t%s:%s-%s\t%s'):format(
+      comment.id,
+      comment.path,
+      comment.first,
+      comment.last,
+      comment.body:gsub('%s+', ' ')
+    )
     entries[comment.id] = { label = label, comment = comment }
     order[#order + 1] = label
   end

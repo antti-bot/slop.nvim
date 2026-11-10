@@ -79,7 +79,19 @@ function M.pending(session)
     ]],
       { review = review.id, cursor = cursor }
     ).node.comments
-    vim.list_extend(comments, page.nodes)
+    for _, comment in ipairs(page.nodes) do
+      local last = comment.line ~= vim.NIL and comment.line or comment.originalLine
+      local first = comment.startLine ~= vim.NIL and comment.startLine
+        or (comment.originalStartLine ~= vim.NIL and comment.originalStartLine)
+        or last
+      comments[#comments + 1] = {
+        id = comment.id,
+        body = comment.body,
+        path = comment.path,
+        first = first,
+        last = last,
+      }
+    end
     cursor = page.pageInfo.hasNextPage and page.pageInfo.endCursor or nil
   until not cursor
   return { id = review.id, comments = comments }
