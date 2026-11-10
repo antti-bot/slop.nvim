@@ -284,6 +284,30 @@ local function test()
   eq({ '```suggestion', 'ONE', 'TWO', '```' }, vim.api.nvim_buf_get_lines(0, 0, -1, false))
   close()
 
+  -- All review editor types participate in the same session lifecycle.
+  for _, open in ipairs({
+    function()
+      slop.comment(1, 1)
+    end,
+    slop.drafts,
+    function()
+      slop.submit(true)
+    end,
+  }) do
+    open()
+    set({ 'Unsaved review work' })
+    fails(slop.start, 'Save or discard')
+    fails(slop.stop, 'Save or discard')
+    fails(slop.submit, 'Save or discard')
+    vim.bo.modified = false
+    slop.stop()
+    set({ 'Cannot write after stopping' })
+    fails(save, 'Start a review')
+    close()
+    source()
+    start()
+  end
+
   -- Restarting/ending the review invalidates old saved comment buffers.
   source()
   local stale = slop.comment(1, 1)

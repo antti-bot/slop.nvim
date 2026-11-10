@@ -4,7 +4,6 @@ local buffer = require('slop.buffer')
 local M = {}
 local session
 local generation = 0
-local editors = {}
 local config = { mappings = false }
 
 local function notify(message)
@@ -26,19 +25,28 @@ local function pr_session(expected)
 end
 
 local function unsaved(s, except)
-  for buf, owner in pairs(editors) do
+  for buf in pairs(s.editors) do
     if not vim.api.nvim_buf_is_valid(buf) then
-      editors[buf] = nil
-    elseif owner == s and buf ~= except then
+      s.editors[buf] = nil
+    elseif buf ~= except then
       assert(not vim.bo[buf].modified, 'Save or discard other Slop buffers first')
     end
   end
 end
 
+-- Every review editor belongs to its opening session, including deferred writes.
+local function open_editor(s, kind, lines, write)
+  local buf = buffer.open(kind, lines, function(bufnr, content)
+    pr_session(s)
+    write(bufnr, content)
+  end)
+  s.editors[buf] = true
+  return buf
+end
+
 local function comment_buffer(s, target, body, id)
   local original = body or ''
-  local buf = buffer.open('comment', vim.split(original, '\n', { plain = true }), function(_, lines)
-    pr_session(s)
+  local buf = open_editor(s, 'comment', vim.split(original, '\n', { plain = true }), function(_, lines)
     local text = table.concat(lines, '\n')
     if vim.trim(text) == '' then
       notify('Empty comment aborted; any existing draft comment was kept')
@@ -54,7 +62,6 @@ local function comment_buffer(s, target, body, id)
     original = text
     notify('Comment saved to draft review')
   end)
-  editors[buf] = s
   vim.b[buf].slop_target = target
   return buf
 end
@@ -114,7 +121,7 @@ function M.start()
   local pr, host = github.pr(root)
   local merged, base = pcall(system.git, root, { 'merge-base', 'HEAD', pr.baseRefOid })
   assert(merged, 'PR base is unavailable locally; fetch the base branch and retry :Slop\n' .. base)
-  local s = { root = root, pr = pr, host = host, base = base }
+  local s = { root = root, pr = pr, host = host, base = base, editors = {} }
   generation = generation + 1
   local request = generation
   session = nil
@@ -201,8 +208,7 @@ function M.drafts()
     entries[comment.id] = { label = label, comment = comment }
     order[#order + 1] = label
   end
-  local buf = buffer.open('drafts', order, function(_, lines)
-    pr_session(s)
+  local buf = open_editor(s, 'drafts', order, function(_, lines)
     local keep = {}
     for _, line in ipairs(lines) do
       if line ~= '' then
@@ -224,7 +230,6 @@ function M.drafts()
     notify('Draft list saved')
   end)
   s.list = buf
-  editors[buf] = s
   vim.keymap.set('n', '<CR>', function()
     local id = vim.fn.getline('.'):match('^(%S+)\t')
     local entry = entries[id]
@@ -250,7 +255,7 @@ function M.submit(with_comment)
     return
   end
   local done = false
-  local buf = buffer.open('review', { '' }, function(bufnr, lines)
+  local buf = open_editor(s, 'review', { '' }, function(bufnr, lines)
     local body = table.concat(lines, '\n')
     if vim.trim(body) == '' then
       notify('Empty review comment aborted; draft review was kept')
@@ -260,7 +265,6 @@ function M.submit(with_comment)
     submit(body, bufnr)
     done = true
   end)
-  editors[buf] = s
   return buf
 end
 
